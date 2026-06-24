@@ -60,6 +60,11 @@ steps:
       - '--no-cpu-throttling'
       # Keep at least one warm instance so an in-progress job isn't killed by scale-to-zero
       - '--min-instances=1'
+      # Cap at one instance: jobs are stored in-memory, routing to a second instance
+      # would cause 404 on status checks
+      - '--max-instances=1'
+      # Route same client to same instance as an extra safety net
+      - '--session-affinity'
 
 images:
   - '$_IMAGE:$SHORT_SHA'
