@@ -69,10 +69,10 @@ USER_PROMPT_TEMPLATE = """以下是會議逐字稿（含時間戳記）：
 
 GEMINI_MODELS = [
     "gemini-2.5-flash",
-    "gemini-2.5-flash-preview-05-20",
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-flash-001",
+    "gemini-2.0-flash",
+    "gemini-2.5-flash-lite",
     "gemini-2.0-flash-lite",
+    "gemini-flash-latest",
 ]
 
 
@@ -126,6 +126,7 @@ def _process_job(job_id: str, video_path: Path, api_key: str):
         prompt = USER_PROMPT_TEMPLATE.format(transcript=transcript)
 
         minutes_text = None
+        model_errors = {}
         for model_name in GEMINI_MODELS:
             try:
                 resp = client.models.generate_content(model=model_name, contents=prompt, config=config)
@@ -133,12 +134,15 @@ def _process_job(job_id: str, video_path: Path, api_key: str):
                 break
             except Exception as e:
                 err = str(e)
+                model_errors[model_name] = err
+                print(f"[Gemini] {model_name} failed: {err}", flush=True)
                 if any(k in err for k in ("NOT_FOUND", "not found", "UNAVAILABLE", "503", "RESOURCE_EXHAUSTED", "429")):
                     continue
                 raise
 
         if minutes_text is None:
-            raise RuntimeError("所有 Gemini 模型均不可用，請確認 API Key 是否正確")
+            details = "; ".join(f"{m}: {e[:80]}" for m, e in model_errors.items())
+            raise RuntimeError(f"所有 Gemini 模型均不可用。詳細錯誤：{details}")
 
         minutes_path = video_path.with_suffix(".md")
         minutes_path.write_text(minutes_text, encoding="utf-8")
