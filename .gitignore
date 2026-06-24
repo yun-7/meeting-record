@@ -1,0 +1,19 @@
+# Virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Large media files (meeting recordings)
+*.mp4
+*.wav
+*.m4a
+
+# Generated output files (transcriptions and meeting minutes)
+【*.txt
+【*.md
+
+# Local Claude Code settings
+.claude/settings.local.json

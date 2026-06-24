@@ -1,0 +1,56 @@
+substitutions:
+  _SERVICE_NAME: meeting-web
+  _REGION: asia-east1
+  _IMAGE: gcr.io/$PROJECT_ID/meeting-web
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  # Higher-CPU machine speeds up the Whisper model download on cold cache misses
+  machineType: 'E2_HIGHCPU_8'
+
+steps:
+  # Step 1: Pull previous image for layer caching (failure is OK on first run)
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'docker-pull-cache'
+    entrypoint: bash
+    args: ['-c', 'docker pull $_IMAGE:latest || true']
+
+  # Step 2: Build full image with cache-from to reuse unchanged layers
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'docker-build'
+    dir: 'web'
+    args:
+      - 'build'
+      - '--cache-from=$_IMAGE:latest'
+      - '--tag=$_IMAGE:$SHORT_SHA'
+      - '--tag=$_IMAGE:latest'
+      - '.'
+
+  # Step 3: Push commit-SHA tag (immutable, used for deployment)
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'docker-push-sha'
+    args: ['push', '$_IMAGE:$SHORT_SHA']
+
+  # Step 4: Push latest tag (used as cache source for next build)
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'docker-push-latest'
+    args: ['push', '$_IMAGE:latest']
+
+  # Step 5: Deploy to Cloud Run using the immutable SHA tag
+  # Secrets are injected from Secret Manager at runtime — never stored in source
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy'
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - '$_SERVICE_NAME'
+      - '--image=$_IMAGE:$SHORT_SHA'
+      - '--region=$_REGION'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--update-secrets=SITE_PASSWORD=meeting-web-site-password:latest,GCS_BUCKET=meeting-web-gcs-bucket:latest'
+
+images:
+  - '$_IMAGE:$SHORT_SHA'
+  - '$_IMAGE:latest'

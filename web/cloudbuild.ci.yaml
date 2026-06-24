@@ -1,0 +1,33 @@
+substitutions:
+  _REGION: asia-east1
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # Step 1: Python syntax check on all .py files
+  - name: 'python:3.11-slim'
+    id: 'python-syntax-check'
+    dir: 'web'
+    entrypoint: python
+    args:
+      - '-c'
+      - |
+        import ast, sys, pathlib
+        errors = []
+        for p in pathlib.Path('.').rglob('*.py'):
+          if '__pycache__' in str(p): continue
+          try:
+            ast.parse(p.read_bytes())
+            print(f'  OK  {p}')
+          except SyntaxError as e:
+            errors.append(str(e))
+            print(f'FAIL {p}: {e}', file=sys.stderr)
+        sys.exit(1 if errors else 0)
+
+  # Step 2: Build Docker image up to the 'deps' stage only (skips ~1.5GB Whisper download)
+  # Validates: apt packages, pip installs, COPY paths, Dockerfile syntax
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'docker-build-deps-only'
+    dir: 'web'
+    args: ['build', '--target=deps', '--tag=ci-deps-check:$SHORT_SHA', '.']
