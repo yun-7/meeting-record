@@ -144,8 +144,14 @@ def _process_job(job_id: str, video_path: Path, api_key: str):
                 raise
 
         if minutes_text is None:
-            details = "; ".join(f"{m}: {e[:80]}" for m, e in model_errors.items())
-            raise RuntimeError(f"所有 Gemini 模型均不可用。詳細錯誤：{details}")
+            all_errors = " ".join(model_errors.values())
+            if "RESOURCE_EXHAUSTED" in all_errors or "429" in all_errors:
+                raise RuntimeError("Gemini API 免費配額已用完（429），請明天再試或更換 API Key")
+            elif "UNAVAILABLE" in all_errors or "503" in all_errors:
+                raise RuntimeError("Gemini 模型目前負載過高（503），請稍後幾分鐘再試")
+            else:
+                details = "; ".join(f"{m}: {e[:80]}" for m, e in model_errors.items())
+                raise RuntimeError(f"所有 Gemini 模型均不可用。詳細錯誤：{details}")
 
         minutes_path = video_path.with_suffix(".md")
         minutes_path.write_text(minutes_text, encoding="utf-8")
