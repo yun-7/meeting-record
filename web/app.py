@@ -4,6 +4,7 @@ import secrets
 import threading
 import tempfile
 import datetime
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +77,22 @@ GEMINI_MODELS = [
 ]
 
 
+def _extract_audio(src: Path) -> Path:
+    """Convert any video/audio to 16 kHz mono WAV before Whisper.
+    A 1 GB MP4 becomes ~75 MB WAV, freeing disk and reducing decode memory.
+    The original file is deleted after successful conversion.
+    """
+    dst = src.with_suffix('.wav')
+    result = subprocess.run(
+        ['ffmpeg', '-i', str(src), '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', str(dst), '-y'],
+        capture_output=True,
+    )
+    if result.returncode == 0:
+        src.unlink(missing_ok=True)
+        return dst
+    return src  # fall back to original if ffmpeg fails
+
+
 def _get_whisper_model():
     global _whisper_model
     if _whisper_model is None:
@@ -90,6 +107,7 @@ def _process_job(job_id: str, video_path: Path, api_key: str):
     try:
         jobs[job_id]["status"] = "transcribing"
         jobs[job_id]["partial_transcript"] = ""
+        video_path = _extract_audio(video_path)
         model = _get_whisper_model()
         segments, _ = model.transcribe(
             str(video_path),

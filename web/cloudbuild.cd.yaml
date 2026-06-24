@@ -65,6 +65,8 @@ steps:
       - '--max-instances=1'
       # Route same client to same instance as an extra safety net
       - '--session-affinity'
+      # gen2 gives 32 GB NVMe /tmp (gen1 default is only 512 MB — too small for large video files)
+      - '--execution-environment=gen2'
 
 images:
   - '$_IMAGE:$SHORT_SHA'
