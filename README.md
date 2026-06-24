@@ -154,3 +154,5 @@ Build 需要約 5–10 分鐘（含 Whisper model 下載），完成後自動切
 - Gemini API Key 由**使用者自行提供**，不會持久化儲存於伺服器，請自行至 [Google AI Studio](https://aistudio.google.com/) 申請。
 - Cloud Run 為無狀態服務，重啟後進行中的工作紀錄會消失；已完成並下載的檔案不受影響。
 - 逐字稿語言設定為中文（`language="zh"`），若需轉錄其他語言需修改 `transcribe.py` 或 `web/app.py`。
+
+西西
