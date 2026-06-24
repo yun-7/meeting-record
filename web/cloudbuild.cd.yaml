@@ -50,6 +50,15 @@ steps:
       - '--platform=managed'
       - '--allow-unauthenticated'
       - '--update-secrets=SITE_PASSWORD=meeting-web-site-password:latest,GCS_BUCKET=meeting-web-gcs-bucket:latest'
+      # Whisper medium model needs ~1.5 GB; add headroom for video buffers and Gemini response
+      - '--memory=4Gi'
+      - '--cpu=2'
+      # Background transcription threads must keep running after the HTTP response returns.
+      # Without this flag Cloud Run throttles the CPU to ~0 the moment /api/process responds,
+      # freezing the thread before it can transcribe anything.
+      - '--no-cpu-throttling'
+      # Keep at least one warm instance so an in-progress job isn't killed by scale-to-zero
+      - '--min-instances=1'
 
 images:
   - '$_IMAGE:$SHORT_SHA'
