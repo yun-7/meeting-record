@@ -1,7 +1,7 @@
 substitutions:
   _SERVICE_NAME: meeting-web
   _REGION: asia-east1
-  _IMAGE: gcr.io/$PROJECT_ID/meeting-web
+  _IMAGE: gcr.io/julia-500214/meeting-web
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -49,6 +49,7 @@ steps:
       - '--region=$_REGION'
       - '--platform=managed'
       - '--allow-unauthenticated'
+      - '--remove-env-vars=SITE_PASSWORD,GCS_BUCKET'
       - '--update-secrets=SITE_PASSWORD=meeting-web-site-password:latest,GCS_BUCKET=meeting-web-gcs-bucket:latest'
       # Whisper medium model needs ~1.5 GB; add headroom for video buffers and Gemini response
       - '--memory=4Gi'
