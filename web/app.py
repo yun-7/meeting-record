@@ -103,9 +103,12 @@ def _process_job(job_id: str, video_path: Path, api_key: str):
             h, m, sec = int(s // 3600), int((s % 3600) // 60), int(s % 60)
             return f"{h:02d}:{m:02d}:{sec:02d}"
 
+        import opencc
+        _s2t = opencc.OpenCC('s2t')
+
         lines = []
         for seg in segments:
-            lines.append(f"[{_fmt(seg.start)}] {seg.text.strip()}")
+            lines.append(f"[{_fmt(seg.start)}] {_s2t.convert(seg.text.strip())}")
             jobs[job_id]["partial_transcript"] = "\n".join(lines)
         transcript = "\n".join(lines)
 

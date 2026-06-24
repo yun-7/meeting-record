@@ -4,3 +4,4 @@ python-multipart>=0.0.9
 faster-whisper>=1.0.0
 google-genai>=1.0.0
 google-cloud-storage>=2.0.0
+opencc-python-reimplemented>=0.1.7
