@@ -132,7 +132,8 @@ def _process_job(job_id: str, video_path: Path, api_key: str):
                 minutes_text = resp.text
                 break
             except Exception as e:
-                if "NOT_FOUND" in str(e) or "not found" in str(e).lower():
+                err = str(e)
+                if any(k in err for k in ("NOT_FOUND", "not found", "UNAVAILABLE", "503", "RESOURCE_EXHAUSTED", "429")):
                     continue
                 raise
 
