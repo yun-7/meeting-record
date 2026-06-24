@@ -103,12 +103,21 @@ def _get_whisper_model():
     return _whisper_model
 
 
+def _log(job_id: str, msg: str):
+    print(f"[job:{job_id[:8]}] {msg}", flush=True)
+
+
 def _process_job(job_id: str, video_path: Path, api_key: str):
     try:
+        _log(job_id, f"started — file={video_path.name} size={video_path.stat().st_size // 1024 // 1024}MB")
         jobs[job_id]["status"] = "transcribing"
         jobs[job_id]["partial_transcript"] = ""
+
         video_path = _extract_audio(video_path)
+        _log(job_id, f"audio extracted — {video_path.name} size={video_path.stat().st_size // 1024 // 1024}MB")
+
         model = _get_whisper_model()
+        _log(job_id, "whisper model ready, transcription starting")
         segments, _ = model.transcribe(
             str(video_path),
             language="zh",
@@ -129,12 +138,14 @@ def _process_job(job_id: str, video_path: Path, api_key: str):
             lines.append(f"[{_fmt(seg.start)}] {_s2t.convert(seg.text.strip())}")
             jobs[job_id]["partial_transcript"] = "\n".join(lines)
         transcript = "\n".join(lines)
+        _log(job_id, f"transcription done — {len(lines)} segments")
 
         transcript_path = video_path.with_suffix(".txt")
         transcript_path.write_text(transcript, encoding="utf-8")
         jobs[job_id]["transcript_path"] = str(transcript_path)
 
         jobs[job_id]["status"] = "generating"
+        _log(job_id, "calling Gemini API")
         from google import genai
         from google.genai import types
 
@@ -152,11 +163,12 @@ def _process_job(job_id: str, video_path: Path, api_key: str):
             try:
                 resp = client.models.generate_content(model=model_name, contents=prompt, config=config)
                 minutes_text = resp.text
+                _log(job_id, f"Gemini succeeded with {model_name}")
                 break
             except Exception as e:
                 err = str(e)
                 model_errors[model_name] = err
-                print(f"[Gemini] {model_name} failed: {err}", flush=True)
+                _log(job_id, f"Gemini {model_name} failed: {err[:120]}")
                 if any(k in err for k in ("NOT_FOUND", "not found", "UNAVAILABLE", "503", "RESOURCE_EXHAUSTED", "429")):
                     continue
                 raise
@@ -175,8 +187,10 @@ def _process_job(job_id: str, video_path: Path, api_key: str):
         minutes_path.write_text(minutes_text, encoding="utf-8")
         jobs[job_id]["minutes_path"] = str(minutes_path)
         jobs[job_id]["status"] = "done"
+        _log(job_id, "job complete")
 
     except Exception as e:
+        _log(job_id, f"job failed: {e}")
         jobs[job_id]["status"] = "error"
         jobs[job_id]["error"] = str(e)
 
@@ -301,6 +315,7 @@ async def start_process(job_id: str, request: Request):
             job_dir.mkdir(exist_ok=True)
             video_path = job_dir / job["filename"]
 
+            _log(job_id, f"downloading from GCS: {job['blob_name']}")
             from google.api_core import retry as _api_retry
             gcs_client = _gcs.Client()
             gcs_blob = gcs_client.bucket(GCS_BUCKET).blob(job["blob_name"])
@@ -309,6 +324,7 @@ async def start_process(job_id: str, request: Request):
                 retry=_api_retry.Retry(deadline=600),
                 timeout=600,
             )
+            _log(job_id, f"download complete — {video_path.stat().st_size // 1024 // 1024}MB")
 
             _process_job(job_id, video_path, job["_api_key"])
 
@@ -318,6 +334,7 @@ async def start_process(job_id: str, request: Request):
             except Exception:
                 pass
         except Exception as e:
+            _log(job_id, f"download_and_process failed: {e}")
             jobs[job_id]["status"] = "error"
             jobs[job_id]["error"] = f"下載檔案失敗：{e}"
 
