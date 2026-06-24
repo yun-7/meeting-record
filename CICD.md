@@ -73,20 +73,32 @@ echo -n "新密碼" | gcloud secrets versions add meeting-web-site-password --da
 
 ## 日常開發流程
 
+**一句話記法：改 → PR → merge，不要直接 push main。**
+
 ```bash
-# 1. 建立新 branch
-git checkout -b feature/your-feature-name
+# 1. 從最新的 main 開新 branch
+git checkout main
+git pull origin main
+git checkout -b fix/your-feature-name   # fix/ 或 feat/ 開頭
 
-# 2. 修改程式碼後 commit
-git add .
-git commit -m "feat: 說明你的變更"
-git push -u origin feature/your-feature-name
+# 2. 修改程式碼後 commit（只 add 有改的檔案）
+git add web/app.py
+git commit -m "fix: 說明改了什麼"
 
-# 3. 到 GitHub 開 Pull Request
-#    → CI 自動跑（約 3-5 分鐘）
-#    → CI 通過後 Merge 進 main
-#    → CD 自動部署到 Cloud Run（約 2-15 分鐘）
+# 3. Push 到 GitHub
+git push -u origin fix/your-feature-name
+
+# 4. 到 GitHub 開 Pull Request (fix/your-feature-name → main)
+#    → CI 自動跑（語法檢查 + Docker 建置，約 3-5 分鐘）
+#    → CI 通過後才 Merge 進 main
+
+# 5. Merge 後 CD 自動部署到 Cloud Run（約 2-15 分鐘）
 ```
+
+> **注意事項**
+> - `git push origin main:test-cicd` 這類直接 push 到其他 branch **不會觸發任何 pipeline**
+> - CI trigger 只在**開 PR 或更新 PR** 時觸發，單純 push branch 不夠
+> - CD trigger 只在 **merge 進 main** 時觸發，不接受直接 push main
 
 ---
 
