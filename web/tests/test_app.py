@@ -273,3 +273,36 @@ def test_download_minutes_serves_file(ac):
 def test_download_requires_auth(c):
     res = c.get("/api/download/transcript/any-id")
     assert res.status_code == 401
+
+
+# ── Preview minutes ────────────────────────────────────────────────────────────
+
+def test_preview_minutes_not_found(ac):
+    res = ac.get("/api/preview/minutes/no-job")
+    assert res.status_code == 404
+
+
+def test_preview_minutes_no_path(ac):
+    jobs["p1"] = {"status": "done", "filename": "a.mp4"}
+    res = ac.get("/api/preview/minutes/p1")
+    assert res.status_code == 404
+
+
+def test_preview_minutes_returns_text(ac):
+    with tempfile.NamedTemporaryFile(suffix=".md", delete=False,
+                                     mode="w", encoding="utf-8") as f:
+        f.write("# 會議紀錄\n\n## 討論重點\n- 項目一\n")
+        tmp = f.name
+    try:
+        jobs["p2"] = {"status": "done", "filename": "meet.mp4", "minutes_path": tmp}
+        res = ac.get("/api/preview/minutes/p2")
+        assert res.status_code == 200
+        assert res.headers["content-type"].startswith("text/plain")
+        assert "# 會議紀錄" in res.text
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+
+
+def test_preview_minutes_requires_auth(c):
+    res = c.get("/api/preview/minutes/any-id")
+    assert res.status_code == 401
