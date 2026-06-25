@@ -122,7 +122,7 @@ def _transcribe_job(job_id: str, video_path: Path):
         segments, _ = model.transcribe(
             str(video_path),
             language="zh",
-            beam_size=5,
+            beam_size=1,
             vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 500},
         )
