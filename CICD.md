@@ -39,10 +39,20 @@ CD 自動部署 (cloudbuild.cd.yaml)
 **1. Python 語法檢查**
 掃描所有 `.py` 檔，確保沒有語法錯誤。
 
-**2. Docker 建置驗證**
-只建置 Dockerfile 的 `deps` 階段（安裝 ffmpeg + pip 套件），跳過 Whisper 模型下載，約 3-5 分鐘完成。
+**2. Functional Tests（pytest）**
+執行 `web/tests/` 下的 pytest 測試，覆蓋所有 HTTP API endpoint：
+- 認證（login / logout / me）
+- 上傳影片／音訊（Phase 1 起始）
+- 上傳逐字稿 .txt（直接進 Phase 2）
+- Job 狀態查詢
+- 手動觸發 Phase 2（generate-minutes）
+- 下載逐字稿、會議紀錄
 
-> CI 不包含功能測試，若需新增請在 `web/cloudbuild.ci.yaml` 加入 pytest step。
+測試不安裝 faster-whisper / google-genai / opencc（皆在函式內 import），用 `unittest.mock` 隔離，約 1 分鐘完成。
+測試檔案位於 `web/tests/test_app.py`，新增功能時請同步補上對應測試。
+
+**3. Docker 建置驗證**
+只建置 Dockerfile 的 `deps` 階段（安裝 ffmpeg + pip 套件），跳過 Whisper 模型下載，約 3-5 分鐘完成。
 
 ---
 
@@ -106,7 +116,7 @@ git push -u origin fix/your-feature-name
 
 | 情境 | 預估時間 |
 |---|---|
-| CI（PR 檢查） | 3-5 分鐘 |
+| CI（PR 檢查） | 4-6 分鐘 |
 | CD 首次部署（無快取） | 10-15 分鐘 |
 | CD 一般部署（有快取） | 2-3 分鐘 |
 

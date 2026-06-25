@@ -116,11 +116,12 @@
                 d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
             </svg>
           </div>
-          <p class="text-slate-700 font-medium text-lg">點擊或拖曳影片或音檔至此處</p>
+          <p class="text-slate-700 font-medium text-lg">點擊或拖曳檔案至此處</p>
           <p class="text-slate-400 text-sm mt-2">影片：MP4、MOV、AVI、WebM｜音訊：MP3、M4A、WAV、AAC 等</p>
+          <p class="text-slate-400 text-sm mt-1">或直接上傳逐字稿 <span class="font-mono">.txt</span> 快速產生會議紀錄</p>
         </div>
         <input id="fileInput" type="file"
-          accept="video/*,audio/*,.mp4,.mov,.avi,.webm,.m4a,.mp3,.wav,.aac,.ogg,.flac,.wma,.opus"
+          accept="video/*,audio/*,.mp4,.mov,.avi,.webm,.m4a,.mp3,.wav,.aac,.ogg,.flac,.wma,.opus,.txt"
           class="hidden" onchange="handleFile(this.files[0])">
       </div>
 
@@ -168,6 +169,47 @@
         </div>
       </div>
 
+      <!-- Transcribed Section (Phase 1 done, waiting for user to trigger Phase 2) -->
+      <div id="transcribedSection" class="hidden">
+        <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+          <div class="flex items-center gap-3 mb-5">
+            <div class="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+              <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>
+            </div>
+            <div>
+              <p class="font-semibold text-slate-800">第一步完成：逐字稿已產生</p>
+              <p id="transcribedFilename" class="text-sm text-slate-500 truncate"></p>
+            </div>
+          </div>
+
+          <button id="btnDownloadTranscriptOnly"
+            class="w-full mb-3 p-3 rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition flex items-center gap-3 text-left">
+            <svg class="w-5 h-5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+            </svg>
+            <span class="text-sm text-slate-600">下載逐字稿 <span class="text-slate-400 font-mono">.txt</span></span>
+          </button>
+
+          <button onclick="generateMinutes()"
+            class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3 rounded-xl transition flex items-center justify-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+            </svg>
+            第二步：AI 產生會議紀錄
+          </button>
+
+          <button onclick="resetApp()"
+            class="mt-4 w-full py-2 text-sm text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition">
+            重新開始
+          </button>
+        </div>
+      </div>
+
       <!-- Results Section -->
       <div id="resultsSection" class="hidden">
         <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
@@ -183,7 +225,7 @@
             </div>
           </div>
 
-          <div class="grid grid-cols-2 gap-3">
+          <div id="resultButtons" class="grid grid-cols-2 gap-3">
             <button id="btnTranscript"
               class="group p-4 rounded-xl border-2 border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 transition text-left">
               <div class="w-9 h-9 bg-slate-100 group-hover:bg-indigo-100 rounded-lg flex items-center justify-center mb-3 transition">
@@ -240,6 +282,7 @@
   let jobId = null;
   let pollTimer = null;
   let currentFilename = '';
+  let isTextMode = false; // true when uploading a .txt transcript directly
 
   // ── Boot ───────────────────────────────────────────
   (async () => {
@@ -319,10 +362,27 @@
     }
 
     currentFilename = file.name;
+    isTextMode = file.name.toLowerCase().endsWith('.txt');
+
     showProgress(file.name, '準備中...', 3);
 
     try {
-      if (gcsMode) {
+      if (isTextMode) {
+        // ── Text transcript: skip transcription, go straight to Gemini ──
+        showProgress(file.name, '上傳逐字稿...', 8);
+        const form = new FormData();
+        form.append('file', file);
+        form.append('api_key', apiKey);
+
+        const res = await fetch('/api/upload-text', { method: 'POST', body: form });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || `上傳失敗（HTTP ${res.status}）`);
+        }
+        const { job_id } = await res.json();
+        jobId = job_id;
+
+      } else if (gcsMode) {
         // ── GCS flow: browser → GCS → Cloud Run ──────
         const form = new FormData();
         form.append('filename', file.name);
@@ -339,7 +399,7 @@
         // Upload directly to GCS with progress tracking
         await uploadToGCS(file, upload_url);
 
-        // Tell backend to start processing
+        // Tell backend to start transcription
         showProgress(file.name, '通知伺服器開始處理...', 22);
         await fetch(`/api/process/${job_id}`, { method: 'POST' });
 
@@ -396,8 +456,9 @@
     uploading:    { text: '上傳至雲端中...', pct: 10 },
     downloading:  { text: '伺服器下載檔案中...', pct: 25 },
     queued:       { text: '排隊等待處理...', pct: 30 },
-    transcribing: { text: '語音轉文字中（視檔案長度，可能需要數到十幾分鐘）...', pct: 48 },
-    generating:   { text: 'AI 產生會議紀錄中...', pct: 85 },
+    transcribing: { text: '語音轉文字中（視檔案長度，可能需要數到十幾分鐘）...', pct: 55 },
+    transcribed:  { text: '逐字稿完成，請確認後繼續...', pct: 100 },
+    generating:   { text: 'AI 產生會議紀錄中...', pct: 70 },
     done:         { text: '完成', pct: 100 },
   };
 
@@ -431,9 +492,12 @@
           document.getElementById('transcriptLineCount').textContent = `${lines} 行`;
         }
 
-        if (data.status === 'done') {
+        if (data.status === 'transcribed') {
           clearInterval(pollTimer);
-          showResults();
+          showTranscribed();
+        } else if (data.status === 'done') {
+          clearInterval(pollTimer);
+          showResults(data);
         } else if (data.status === 'error') {
           clearInterval(pollTimer);
           showError(data.error || '處理時發生未知錯誤');
@@ -444,13 +508,50 @@
     }, 3000);
   }
 
-  function showResults() {
+  function showTranscribed() {
     document.getElementById('progressSection').classList.add('hidden');
-    document.getElementById('resultsSection').classList.remove('hidden');
-    document.getElementById('resultFilename').textContent = currentFilename;
-    document.getElementById('btnTranscript').onclick = () => {
+    document.getElementById('transcribedSection').classList.remove('hidden');
+    document.getElementById('transcribedFilename').textContent = currentFilename;
+    document.getElementById('btnDownloadTranscriptOnly').onclick = () => {
       window.location.href = `/api/download/transcript/${jobId}`;
     };
+  }
+
+  async function generateMinutes() {
+    try {
+      const res = await fetch(`/api/generate-minutes/${jobId}`, { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || '無法啟動會議紀錄生成');
+      }
+      document.getElementById('transcribedSection').classList.add('hidden');
+      showProgress(currentFilename, 'AI 產生會議紀錄中...', 30);
+      startPolling();
+    } catch (err) {
+      showError(err.message);
+    }
+  }
+
+  function showResults(data) {
+    document.getElementById('progressSection').classList.add('hidden');
+    document.getElementById('transcribedSection').classList.add('hidden');
+    document.getElementById('resultsSection').classList.remove('hidden');
+    document.getElementById('resultFilename').textContent = currentFilename;
+
+    // For text-mode jobs there's no separate transcript to download
+    const transcriptBtn = document.getElementById('btnTranscript');
+    if (isTextMode) {
+      transcriptBtn.classList.add('hidden');
+      document.getElementById('resultButtons').classList.remove('grid-cols-2');
+      document.getElementById('resultButtons').classList.add('grid-cols-1');
+    } else {
+      transcriptBtn.classList.remove('hidden');
+      document.getElementById('resultButtons').classList.add('grid-cols-2');
+      document.getElementById('resultButtons').classList.remove('grid-cols-1');
+      transcriptBtn.onclick = () => {
+        window.location.href = `/api/download/transcript/${jobId}`;
+      };
+    }
     document.getElementById('btnMinutes').onclick = () => {
       window.location.href = `/api/download/minutes/${jobId}`;
     };
@@ -464,8 +565,10 @@
   function resetApp() {
     clearInterval(pollTimer);
     jobId = null;
+    isTextMode = false;
     document.getElementById('uploadSection').classList.remove('hidden');
     document.getElementById('progressSection').classList.add('hidden');
+    document.getElementById('transcribedSection').classList.add('hidden');
     document.getElementById('resultsSection').classList.add('hidden');
     document.getElementById('fileInput').value = '';
     document.getElementById('transcriptPreview').classList.add('hidden');

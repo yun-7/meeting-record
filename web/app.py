@@ -107,7 +107,8 @@ def _log(job_id: str, msg: str):
     print(f"[job:{job_id[:8]}] {msg}", flush=True)
 
 
-def _process_job(job_id: str, video_path: Path, api_key: str):
+def _transcribe_job(job_id: str, video_path: Path):
+    """Phase 1: convert video/audio to transcript. Sets status to 'transcribed' when done."""
     try:
         _log(job_id, f"started — file={video_path.name} size={video_path.stat().st_size // 1024 // 1024}MB")
         jobs[job_id]["status"] = "transcribing"
@@ -143,9 +144,24 @@ def _process_job(job_id: str, video_path: Path, api_key: str):
         transcript_path = video_path.with_suffix(".txt")
         transcript_path.write_text(transcript, encoding="utf-8")
         jobs[job_id]["transcript_path"] = str(transcript_path)
+        jobs[job_id]["status"] = "transcribed"
+        _log(job_id, "transcription complete, awaiting user trigger for phase 2")
 
+    except Exception as e:
+        _log(job_id, f"transcription failed: {e}")
+        jobs[job_id]["status"] = "error"
+        jobs[job_id]["error"] = str(e)
+
+
+def _generate_minutes_job(job_id: str, api_key: str):
+    """Phase 2: call Gemini API to generate meeting minutes from existing transcript."""
+    try:
         jobs[job_id]["status"] = "generating"
         _log(job_id, "calling Gemini API")
+
+        transcript_path = Path(jobs[job_id]["transcript_path"])
+        transcript = transcript_path.read_text(encoding="utf-8")
+
         from google import genai
         from google.genai import types
 
@@ -183,14 +199,14 @@ def _process_job(job_id: str, video_path: Path, api_key: str):
                 details = "; ".join(f"{m}: {e[:80]}" for m, e in model_errors.items())
                 raise RuntimeError(f"所有 Gemini 模型均不可用。詳細錯誤：{details}")
 
-        minutes_path = video_path.with_suffix(".md")
+        minutes_path = transcript_path.with_suffix(".md")
         minutes_path.write_text(minutes_text, encoding="utf-8")
         jobs[job_id]["minutes_path"] = str(minutes_path)
         jobs[job_id]["status"] = "done"
         _log(job_id, "job complete")
 
     except Exception as e:
-        _log(job_id, f"job failed: {e}")
+        _log(job_id, f"generate_minutes failed: {e}")
         jobs[job_id]["status"] = "error"
         jobs[job_id]["error"] = str(e)
 
@@ -254,8 +270,8 @@ async def upload(request: Request, file: UploadFile = File(...), api_key: str = 
         while chunk := await file.read(1024 * 1024):
             f.write(chunk)
 
-    jobs[job_id] = {"status": "queued", "filename": filename}
-    threading.Thread(target=_process_job, args=(job_id, video_path, api_key), daemon=True).start()
+    jobs[job_id] = {"status": "queued", "filename": filename, "_api_key": api_key}
+    threading.Thread(target=_transcribe_job, args=(job_id, video_path), daemon=True).start()
     return {"job_id": job_id}
 
 
@@ -326,7 +342,7 @@ async def start_process(job_id: str, request: Request):
             )
             _log(job_id, f"download complete — {video_path.stat().st_size // 1024 // 1024}MB")
 
-            _process_job(job_id, video_path, job["_api_key"])
+            _transcribe_job(job_id, video_path)
 
             # Clean up raw video from GCS after processing
             try:
@@ -339,6 +355,55 @@ async def start_process(job_id: str, request: Request):
             jobs[job_id]["error"] = f"下載檔案失敗：{e}"
 
     threading.Thread(target=download_and_process, daemon=True).start()
+    return {"ok": True}
+
+
+# ── Text transcript direct upload ─────────────────────────────────────────────
+
+@app.post("/api/upload-text")
+async def upload_text(request: Request, file: UploadFile = File(...), api_key: str = Form(...)):
+    """Upload a plain-text transcript and go straight to phase 2 (Gemini)."""
+    _require_auth(request)
+    if not api_key.strip():
+        raise HTTPException(status_code=400, detail="請提供 Gemini API Key")
+
+    job_id = str(uuid.uuid4())
+    job_dir = UPLOAD_DIR / job_id
+    job_dir.mkdir()
+
+    filename = file.filename or "transcript.txt"
+    transcript_path = job_dir / filename
+    transcript_path.write_bytes(await file.read())
+
+    jobs[job_id] = {
+        "status": "queued",
+        "filename": filename,
+        "transcript_path": str(transcript_path),
+        "_api_key": api_key,
+    }
+    threading.Thread(target=_generate_minutes_job, args=(job_id, api_key), daemon=True).start()
+    return {"job_id": job_id}
+
+
+# ── Trigger phase 2 after transcription ───────────────────────────────────────
+
+@app.post("/api/generate-minutes/{job_id}")
+async def trigger_generate_minutes(job_id: str, request: Request):
+    """Called by the user after reviewing the transcript to generate meeting minutes."""
+    _require_auth(request)
+    job = jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="找不到此工作")
+    if "transcript_path" not in job:
+        raise HTTPException(status_code=400, detail="尚未完成逐字稿")
+    if job["status"] != "transcribed":
+        raise HTTPException(status_code=400, detail=f"工作狀態不允許（{job['status']}）")
+
+    api_key = job.get("_api_key", "")
+    if not api_key:
+        raise HTTPException(status_code=400, detail="找不到 API Key，請重新上傳")
+
+    threading.Thread(target=_generate_minutes_job, args=(job_id, api_key), daemon=True).start()
     return {"ok": True}
 
 
