@@ -446,5 +446,16 @@ async def download_minutes(job_id: str, request: Request):
     return FileResponse(str(p), filename=f"{stem}_會議紀錄.md", media_type="text/markdown; charset=utf-8")
 
 
+@app.get("/api/preview/minutes/{job_id}")
+async def preview_minutes(job_id: str, request: Request):
+    _require_auth(request)
+    job = jobs.get(job_id)
+    if not job or "minutes_path" not in job:
+        raise HTTPException(status_code=404)
+    p = Path(job["minutes_path"])
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(p.read_text(encoding="utf-8"))
+
+
 # Serve frontend — must be last
 app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="static")
