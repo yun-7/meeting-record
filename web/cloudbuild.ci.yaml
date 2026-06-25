@@ -25,7 +25,20 @@ steps:
             print(f'FAIL {p}: {e}', file=sys.stderr)
         sys.exit(1 if errors else 0)
 
-  # Step 2: Build Docker image up to the 'deps' stage only (skips ~1.5GB Whisper download)
+  # Step 2: Functional tests (pytest)
+  # Installs only lightweight packages — no Whisper/Gemini/GCS needed.
+  # Heavy deps are imported inside functions in app.py and are mocked in tests.
+  - name: 'python:3.11-slim'
+    id: 'pytest'
+    dir: 'web'
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        pip install "fastapi>=0.111.0" "python-multipart>=0.0.9" httpx pytest --quiet
+        PYTHONPATH=. pytest tests/ -v --tb=short
+
+  # Step 3: Build Docker image up to the 'deps' stage only (skips ~1.5GB Whisper download)
   # Validates: apt packages, pip installs, COPY paths, Dockerfile syntax
   - name: 'gcr.io/cloud-builders/docker'
     id: 'docker-build-deps-only'
